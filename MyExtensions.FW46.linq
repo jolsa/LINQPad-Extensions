@@ -2,7 +2,27 @@
 
 void Main()
 {
-	var xml = XDocument.Parse(@"
+	XDocument xml;
+	xml = XDocument.Parse(@"
+<root>
+	<Level1 value=""value1"" add=""false"" id=""1"">D</Level1>
+	<Level1 value=""value1"" add=""false"" id=""2"">C</Level1>
+		<Level2>Z</Level2>
+		<Level2>
+			<Level3 id=""3"" />
+			<Level3 id=""2"" />
+			<Level3 id=""1"" />
+		</Level2>
+		<Level2>Y</Level2>
+	<Level1 value=""value1"" add=""false"" id=""4"">B</Level1>
+	<Level1 value=""value1"" add=""false"" id=""3"">A</Level1>
+</root>
+");
+
+	xml.Sort(true);
+	xml.Reformat().Dump("Sorted"); return;
+
+	xml = XDocument.Parse(@"
 <root id=""rootNode"">
 	Root Node
 	<e1 name=""element1"">
@@ -22,6 +42,7 @@ void Main()
 	xml.Descendants().Select(x => new { path = x.GetXPath(), level = x.GetLevel() }).Dump("GetLevel");
 
 	string unformatted = @"<root><el1><el2 name=""El 2"" /></el1></root>";
+	unformatted.ToFormattedXmlString().Replace('\t', '.').Dump("Unformatted to Formatted");
 	XDocument doc;
 
 	doc = XDocument.Parse(unformatted).Reformat();
@@ -29,9 +50,9 @@ void Main()
 	doc.XPathSelectElement("//el1").GetLineInfo().LineNumber.Dump("Element LineNumber");
 	doc.XPathSelectAttribute("//@name").GetLineInfo().LineNumber.Dump("Attribute LineNumber");
 
-	var xws = new XmlWriterSettings() { Indent = true, IndentChars = "      " };
+	var xws = new XmlWriterSettings() { Indent = true, IndentChars = "\t" };
 	XDocument.Parse(unformatted).Reformat(xws).Declaration.Dump("Declaration");
-	unformatted.ToFormattedXml(xws).ToFormattedString(xws).Dump("ToFormattedXml");
+	unformatted.ToFormattedXmlString(xws).Replace("\t", "....").Dump("ToFormattedXmlString");
 
 }
 
@@ -40,19 +61,6 @@ public static class XmlExtensions
 	public static IXmlLineInfo GetLineInfo(this XObject value)
 	{
 		return (IXmlLineInfo)value;
-	}
-	public static string ToFormattedString(this XDocument value, XmlWriterSettings settings = null)
-	{
-		if (settings == null)
-			settings = GetDefaultSettings();
-
-		using (var sw = new StringWriterEncoded(settings.Encoding ?? Encoding.UTF8))
-		using (var xw = XmlWriter.Create(sw, settings))
-		{
-			value.Save(xw);
-			xw.Flush();
-			return sw.ToString();
-		}
 	}
 	public static int GetLevel(this XElement value)
 	{
@@ -81,12 +89,56 @@ public static class XmlExtensions
 	{
 		return value.Parent.GetXPath() + "[@" + value.Name.LocalName + ']';
 	}
+
+	//	Returns the value of THIS node excluding any child elements' values
 	public static string GetThisNodeValue(this XElement element)
 	{
 		var n = new XElement(element);
 		n.Descendants().Remove();
 		return n.Value;
 	}
+
+	//	Sorting
+	public static XDocument Sort(this XDocument value, bool sortAttributes = false, IEnumerable<string> sortFirstAttributes = null)
+	{
+
+		var sortAttrDict = (sortFirstAttributes ?? new[] { "id", "key", "name", "path" }).ToDictionary(k => k, StringComparer.OrdinalIgnoreCase);
+	
+		//	Order elements by depth (descending)
+		var elements = value.Descendants().OrderByDescending(x => x.GetXPath().Cast<char>().Count(c => c == '/')).ToList();
+		elements.ForEach(e =>
+		{
+			if (sortAttributes && e.Attributes().Any())
+			{
+				var newElement = new XElement(e.Name);
+				newElement.Add(e.Attributes()
+					.OrderBy(a => sortAttrDict.ContainsKey(a.Name.LocalName) ? 0 : 1)
+					.ThenBy(a => a.Name.LocalName)
+					.ThenBy(a => a.Value));
+				e.Attributes().Remove();
+				e.Add(newElement.Attributes());
+			}
+
+			if (e.Elements().Any())
+			{
+				var newElement = new XElement(e.Name);
+				newElement.Add(
+					e.Elements()
+						.OrderBy(c => c.GetXPath())
+						//	Convert attributes to tab-delimited string for secondary sort
+						//	e.g.: name="Joe" value="45" becomes name{tab}Joe{tab}value{tab}45
+						.ThenBy(c => string.Join("\t", c.Attributes().Select(a => a.Name.LocalName + '\t' + a.Value)))
+						.ThenBy(c => c.GetThisNodeValue().Trim())
+						.ThenBy(c => ((IXmlLineInfo)c).LineNumber)
+					);
+				e.Elements().Remove();
+				e.Add(newElement.Elements());
+			}
+		});
+		return value;
+	}
+
+	//	XPath enhancements
 	public static XAttribute XPathSelectAttribute(this XContainer value, string expression)
 	{
 		return value.XPathSelectAttribute(expression, default(IXmlNamespaceResolver));
@@ -103,7 +155,26 @@ public static class XmlExtensions
 	{
 		return ((IEnumerable)value.XPathEvaluate(expression, resolver)).Cast<XAttribute>();
 	}
+
+	//	Formatting:
+
+	//	Return XDocument after formatting current XDocuments content
 	public static XDocument Reformat(this XDocument value, XmlWriterSettings settings = null)
+	{
+		return XDocument.Parse(value.ToFormattedXmlString(settings), LoadOptions.SetLineInfo);
+	}
+	//	Return XDocument after formatting current string
+	public static XDocument ToFormattedXml(this string xml, XmlWriterSettings settings = null)
+	{
+		return XDocument.Parse(xml).Reformat(settings);
+	}
+	//	Return formatted XML string from current string
+	public static string ToFormattedXmlString(this string value, XmlWriterSettings settings = null)
+	{
+		return XDocument.Parse(value).ToFormattedXmlString(settings);
+	}
+	//	Return formatted XML string from current XDocument
+	public static string ToFormattedXmlString(this XDocument value, XmlWriterSettings settings = null)
 	{
 		if (settings == null)
 			settings = GetDefaultSettings();
@@ -113,15 +184,12 @@ public static class XmlExtensions
 		{
 			value.WriteTo(xw);
 			xw.Flush();
-			return XDocument.Parse(sw.ToString(), LoadOptions.SetLineInfo);
+			return sw.ToString();
 		}
 	}
 
-	public static XDocument ToFormattedXml(this string xml, XmlWriterSettings settings = null)
-	{
-		return XDocument.Parse(xml).Reformat(settings);
-	}
-
+	//	Private support classes and methods:
+	
 	private static XmlWriterSettings GetDefaultSettings()
 	{
 		return new XmlWriterSettings() { Indent = true, IndentChars = "\t" };
@@ -135,6 +203,69 @@ public static class XmlExtensions
 	}
 }
 
+public static class JoinExtensions
+{
+	public static IEnumerable<TResult> CrossJoin<TOuter, TInner, TResult>(this IEnumerable<TOuter> outer,
+		IEnumerable<TInner> inner, Func<TOuter, TInner, TResult> resultSelector)
+	{
+		return outer.SelectMany(o => inner.Select(i => resultSelector(o, i)));
+	}
+
+	public static IEnumerable<TResult> LeftJoin<TOuter, TInner, TKey, TResult>(this IEnumerable<TOuter> outer,
+		IEnumerable<TInner> inner, Func<TOuter, TKey> outerKeySelector, Func<TInner, TKey> innerKeySelector,
+		Func<TOuter, TInner, TResult> resultSelector, IEqualityComparer<TKey> comparer)
+	{
+		return outer.GroupJoin(
+			inner,
+			outerKeySelector,
+			innerKeySelector,
+			(o, ei) => ei
+				.Select(i => resultSelector(o, i))
+				.DefaultIfEmpty(resultSelector(o, default(TInner))), comparer)
+				.SelectMany(oi => oi);
+	}
+
+	public static IEnumerable<TResult> LeftJoin<TOuter, TInner, TKey, TResult>(this IEnumerable<TOuter> outer,
+		IEnumerable<TInner> inner, Func<TOuter, TKey> outerKeySelector, Func<TInner, TKey> innerKeySelector,
+		Func<TOuter, TInner, TResult> resultSelector)
+	{
+		return outer.LeftJoin(inner, outerKeySelector, innerKeySelector, resultSelector, default(IEqualityComparer<TKey>));
+	}
+
+	public static IEnumerable<TResult> RightJoin<TOuter, TInner, TKey, TResult>(this IEnumerable<TOuter> outer,
+		IEnumerable<TInner> inner, Func<TOuter, TKey> outerKeySelector, Func<TInner, TKey> innerKeySelector,
+		Func<TOuter, TInner, TResult> resultSelector, IEqualityComparer<TKey> comparer)
+	{
+		return inner.LeftJoin(outer, innerKeySelector, outerKeySelector, (o, i) => resultSelector(i, o), comparer);
+	}
+
+	public static IEnumerable<TResult> RightJoin<TOuter, TInner, TKey, TResult>(this IEnumerable<TOuter> outer,
+		IEnumerable<TInner> inner, Func<TOuter, TKey> outerKeySelector, Func<TInner, TKey> innerKeySelector,
+		Func<TOuter, TInner, TResult> resultSelector)
+	{
+		return outer.RightJoin(inner, outerKeySelector, innerKeySelector, resultSelector, default(IEqualityComparer<TKey>));
+	}
+
+	public static IEnumerable<TResult> FullJoin<TOuter, TInner, TKey, TResult>(this IEnumerable<TOuter> outer,
+		IEnumerable<TInner> inner, Func<TOuter, TKey> outerKeySelector, Func<TInner, TKey> innerKeySelector,
+		Func<TOuter, TInner, TResult> resultSelector, IEqualityComparer<TKey> comparer)
+	{
+		var leftInner = outer.LeftJoin(inner, outerKeySelector, innerKeySelector, (o, i) => new { o, i }, comparer);
+		var defOuter = default(TOuter);
+		var right = outer.RightJoin(inner, outerKeySelector, innerKeySelector, (o, i) => new { o, i }, comparer)
+			.Where(oi => oi.o == null || oi.o.Equals(defOuter));
+		return leftInner.Concat(right).Select(oi => resultSelector(oi.o, oi.i));
+	}
+
+	public static IEnumerable<TResult> FullJoin<TOuter, TInner, TKey, TResult>(this IEnumerable<TOuter> outer,
+		IEnumerable<TInner> inner, Func<TOuter, TKey> outerKeySelector, Func<TInner, TKey> innerKeySelector,
+		Func<TOuter, TInner, TResult> resultSelector)
+	{
+		return outer.FullJoin(inner, outerKeySelector, innerKeySelector, resultSelector, default(IEqualityComparer<TKey>));
+	}
+
+}
+
 //	XmlNamespaceHelper: Created 11/21/2015 - Johnny Olsa
 public class XmlNamespaceHelper
 {
@@ -146,7 +277,7 @@ public class XmlNamespaceHelper
 		_nsm = new XmlNamespaceManager(new NameTable());
 		xml.Root.Attributes()
 			.Where(a => a.IsNamespaceDeclaration)
-			.GroupBy(a => a.Name.Namespace == XNamespace.None ? String.Empty : a.Name.LocalName, a => XNamespace.Get(a.Value))
+			.GroupBy(a => a.Name.Namespace == XNamespace.None ? defaultPrefix : a.Name.LocalName, a => XNamespace.Get(a.Value))
 			.ToList()
 			.ForEach(ns => _nsm.AddNamespace(string.IsNullOrWhiteSpace(ns.Key) ? defaultPrefix : ns.Key, ns.First().NamespaceName));
 	}
