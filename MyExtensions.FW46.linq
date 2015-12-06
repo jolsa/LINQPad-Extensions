@@ -10,7 +10,7 @@ void Main()
 		<Level2>Z</Level2>
 		<Level2>
 			<Level3 id=""3"" />
-			<Level3 id=""2"" />
+			<Level3 id=""2"">ZZ</Level3>
 			<Level3 id=""1"" />
 		</Level2>
 		<Level2>Y</Level2>
@@ -20,7 +20,7 @@ void Main()
 ");
 
 	xml.Sort(true);
-	xml.Reformat().Dump("Sorted"); return;
+	xml.ToFormattedXmlString().Replace('\t', '.').Dump("Sorted");
 
 	xml = XDocument.Parse(@"
 <root id=""rootNode"">
@@ -32,7 +32,7 @@ void Main()
 </root>
 ");
 
-	xml.XPathSelectAttributes("//@name | //@id").Dump("XPathSelectAttributes");
+	xml.XPathSelectAttributes("//@name | //@id").Select(x => x.GetXPath()).Dump("XPathSelectAttributes");
 
 	xml.Element("root").Attribute("id").GetXPath().Dump("GetXPath attribute");
 	xml.Root.Element("e1").GetXPath().Dump("GetXPath element");
@@ -103,7 +103,7 @@ public static class XmlExtensions
 	{
 
 		var sortAttrDict = (sortFirstAttributes ?? new[] { "id", "key", "name", "path" }).ToDictionary(k => k, StringComparer.OrdinalIgnoreCase);
-	
+
 		//	Order elements by depth (descending)
 		var elements = value.Descendants().OrderByDescending(x => x.GetXPath().Cast<char>().Count(c => c == '/')).ToList();
 		elements.ForEach(e =>
@@ -189,7 +189,7 @@ public static class XmlExtensions
 	}
 
 	//	Private support classes and methods:
-	
+
 	private static XmlWriterSettings GetDefaultSettings()
 	{
 		return new XmlWriterSettings() { Indent = true, IndentChars = "\t" };
@@ -290,4 +290,26 @@ public class XmlNamespaceHelper
 	{
 		return XName.Get(element, _nsm.LookupNamespace(prefix) ?? "");
 	}
+}
+
+public static class Utilties
+{
+	/// <summary>
+	/// Convert a mis-cased path to a properly cased one
+	/// </summary>
+	public static string CleanPath(string fullPath)
+	{
+		//	Get the root
+		fullPath = Path.GetFullPath(fullPath);
+		string root = Directory.GetDirectoryRoot(fullPath);
+		//	If it has a ':', assume it's a drive and capitalize; otherwise, leave it alone
+		if (root.IndexOf(':') >= 0)
+			root = root.ToUpper();
+		//	Check each part and aggregate
+		if (fullPath.Length > root.Length)
+			root = fullPath.Substring(root.Length).Split('\\')
+				.Aggregate(root, (r, p) => new DirectoryInfo(r).GetFileSystemInfos(p)[0].FullName);
+		return root;
+	}
+
 }
