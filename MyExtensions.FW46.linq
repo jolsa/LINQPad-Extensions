@@ -266,6 +266,46 @@ public static class JoinExtensions
 
 }
 
+public enum OrderByDirection
+{
+	None = 0,
+	Ascending,
+	Descending
+}
+public static class OrderExtensions
+{
+	public static IOrderedEnumerable<TSource> OrderByWithDirection<TSource, TKey>(this IEnumerable<TSource> value, Func<TSource, TKey> keySelector, IComparer<TKey> comparer, OrderByDirection direction)
+	{
+		if (direction == OrderByDirection.None)
+			return value.OrderBy(o => false);
+		return direction == OrderByDirection.Descending ? value.OrderByDescending(keySelector, comparer) : value.OrderBy(keySelector, comparer);
+	}
+	public static IOrderedEnumerable<TSource> OrderByWithDirection<TSource, TKey>(this IEnumerable<TSource> value, Func<TSource, TKey> keySelector, OrderByDirection direction)
+	{
+		return value.OrderByWithDirection(keySelector, default(IComparer<TKey>), direction);
+	}
+	public static IOrderedEnumerable<TSource> ThenByWithDirection<TSource, TKey>(this IOrderedEnumerable<TSource> value, Func<TSource, TKey> keySelector, IComparer<TKey> comparer, OrderByDirection direction)
+	{
+		//	Ideally, if order is not needed, the method would not be called, but sometimes it's easier to code a "no sort" option.
+		//	Testing shows the "OrderByDirection.None" is negligible on large IOrderedEnumerables
+		if (direction == OrderByDirection.None)
+			return value;
+		return direction == OrderByDirection.Descending ? value.ThenByDescending(keySelector, comparer) : value.ThenBy(keySelector, comparer);
+	}
+	public static IOrderedEnumerable<TSource> ThenByWithDirection<TSource, TKey>(this IOrderedEnumerable<TSource> value, Func<TSource, TKey> keySelector, OrderByDirection direction)
+	{
+		return value.ThenByWithDirection(keySelector, default(IComparer<TKey>), direction);
+	}
+}
+
+public static class RegExExtension
+{
+	public static string RegexReplace(this string value, string pattern, string replacement, RegexOptions options = RegexOptions.Singleline | RegexOptions.IgnoreCase)
+	{
+		return Regex.Replace(value, pattern, replacement, options);
+	}
+}
+
 //	XmlNamespaceHelper: Created 11/21/2015 - Johnny Olsa
 public class XmlNamespaceHelper
 {
