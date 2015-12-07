@@ -299,17 +299,29 @@ public static class Utilties
 	/// </summary>
 	public static string CleanPath(string fullPath)
 	{
-		//	Get the root
+		//	Remove trailing slashes (if any), but add one back if any
+		bool appendSlash = fullPath.EndsWith("\\");
+		if (appendSlash)
+			fullPath = Regex.Match(fullPath, @"(^.*?)\\+$").Result("$1");
+
+		//	If not a valid file or directory, this won't work
+		if (!Directory.Exists(fullPath) && !File.Exists(fullPath))
+			throw new DirectoryNotFoundException("\"" + fullPath + "\" is not a valid file or directory.");
+
 		fullPath = Path.GetFullPath(fullPath);
+		//	Get the root
 		string root = Directory.GetDirectoryRoot(fullPath);
 		//	If it has a ':', assume it's a drive and capitalize; otherwise, leave it alone
 		if (root.IndexOf(':') >= 0)
 			root = root.ToUpper();
+		else if (!root.EndsWith("\\"))
+			root += '\\';
 		//	Check each part and aggregate
 		if (fullPath.Length > root.Length)
 			root = fullPath.Substring(root.Length).Split('\\')
 				.Aggregate(root, (r, p) => new DirectoryInfo(r).GetFileSystemInfos(p)[0].FullName);
+		if (appendSlash)
+			root += '\\';
 		return root;
 	}
-
 }
